@@ -84,33 +84,47 @@ namespace AudioCopilot
 
         private void StartPlaybackTimer()
         {
-            _playbackTimer = new Timer(1); 
-            _playbackTimer.Elapsed += async (sender, e) => await LogPlaybackInfo();
+            _playbackTimer = new Timer(200); // Intervalo de 200 ms para mayor precisión
+            _playbackTimer.Elapsed += async (sender, e) =>
+            {
+                await MainThread.InvokeOnMainThreadAsync(async () =>
+                {
+                    await LogPlaybackInfo();
+                });
+            };
             _playbackTimer.Start();
         }
+
+
+
+        private DateTime _lastUpdateTimestamp;
+
+
         private async Task LogPlaybackInfo()
         {
             if (_currentSession != null)
             {
                 try
                 {
-                    // Obtén la información de la posición y duración
                     var playbackInfo = _currentSession.GetPlaybackInfo();
-                    Debug.WriteLine($"Estado de reproducción: {playbackInfo}");
                     var timelineProperties = _currentSession.GetTimelineProperties();
 
-                    var currentPosition = timelineProperties.Position;
+                    var currentPosition = timelineProperties.Position +
+                                          (DateTime.Now - _lastUpdateTimestamp); // Ajusta el tiempo transcurrido
                     var totalDuration = timelineProperties.EndTime - timelineProperties.StartTime;
 
-                    // Calcula el porcentaje de progreso
-                    double progress = (currentPosition.TotalSeconds / totalDuration.TotalSeconds) * 100;
+                    if (totalDuration.TotalSeconds > 0)
+                    {
+                        // Calcula el porcentaje de progreso
+                        double progress = (currentPosition.TotalSeconds / totalDuration.TotalSeconds) * 100;
 
-                    // Actualiza la barra de progreso
-                    progressBar.Value = progress;
+                        // Actualiza la UI
+                        progressBar.Value = progress;
+                        currentTimeLabel.Text = $"{currentPosition.Minutes}:{currentPosition.Seconds:D2}";
+                        totalTimeLabel.Text = $"{totalDuration.Minutes}:{totalDuration.Seconds:D2}";
+                    }
 
-                    // Actualiza las etiquetas de tiempo
-                    currentTimeLabel.Text = $"{currentPosition.Minutes}:{currentPosition.Seconds:D2}";
-                    totalTimeLabel.Text = $"{totalDuration.Minutes}:{totalDuration.Seconds:D2}";
+                    _lastUpdateTimestamp = DateTime.Now; // Actualiza el último timestamp
                 }
                 catch (Exception ex)
                 {
@@ -125,6 +139,9 @@ namespace AudioCopilot
 
 
 
+
+
+
         private async Task GetMediaProperties()
         {
             if (_currentSession != null)
@@ -136,7 +153,7 @@ namespace AudioCopilot
 
                     if (mediaProperties != null)
                     {
-                        // Actualiza las propiedades (Título, Artista)
+                        // Actualiza las propiedades (Título, ArtistAa)
                         SongTitle = mediaProperties.Title ?? "Desconocido";
                         Artist = mediaProperties.Artist ?? "Artista desconocido";
 
