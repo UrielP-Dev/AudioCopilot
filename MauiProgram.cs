@@ -41,14 +41,12 @@ namespace AudioCopilot
                         };
                         appWindow.Resize(size);
 
-                        // Configurar ventana sin bordes (eliminar barra superior)
                         appWindow.SetPresenter(AppWindowPresenterKind.CompactOverlay); // Sin bordes ni barra
 
-                        // Configurar opciones adicionales del presentador
                         if (appWindow.Presenter is OverlappedPresenter presenter)
                         {
-                            //presenter.IsResizable = false;     // Deshabilitar cambiar tamaño
-                            //presenter.IsMaximizable = false;  // Deshabilitar maximizar
+                            presenter.IsResizable = false;     
+                            presenter.IsMaximizable = false;  
                         }
                     }));
 #endif

@@ -1,11 +1,8 @@
 ﻿using Windows.Media.Control;
 using Microsoft.Maui.Controls;
 using System;
-using System.Threading.Tasks;
 using System.Diagnostics;
-using System.Timers;
-using Timer = System.Timers.Timer;
-
+using System.Threading.Tasks;
 
 namespace AudioCopilot
 {
@@ -13,35 +10,38 @@ namespace AudioCopilot
     {
         private GlobalSystemMediaTransportControlsSessionManager _sessionManager;
         private GlobalSystemMediaTransportControlsSession _currentSession;
-        private Timer _playbackTimer;
+        private System.Timers.Timer _updateTimer;
+        private bool _isUpdatingProgress = false;
+        private DateTime _lastUpdateTimestamp = DateTime.MinValue;
 
-        // Propiedades para el título y el artista de la canción
         public string SongTitle { get; set; }
         public string Artist { get; set; }
 
         public MainPage()
         {
             InitializeComponent();
-            BindingContext = this; // Establece el BindingContext de la página
+            BindingContext = this;
             InitializeMediaSession();
+            InitializeUpdateTimer();
+        }
+
+        private void InitializeUpdateTimer()
+        {
+            _updateTimer = new System.Timers.Timer(100);
+            _updateTimer.Elapsed += async (s, e) => await UpdateMediaProgress();
+            _updateTimer.Start();
         }
 
         private async void InitializeMediaSession()
         {
             try
             {
-                // Obtén el administrador de sesiones de medios globales
                 _sessionManager = await GlobalSystemMediaTransportControlsSessionManager.RequestAsync();
 
                 if (_sessionManager != null)
                 {
-                    // Suscríbete a los cambios en la sesión actual
                     _sessionManager.CurrentSessionChanged += OnCurrentSessionChanged;
-
-                    // Configura la sesión inicial
                     UpdateCurrentSession();
-                    StartPlaybackTimer();
-
                 }
             }
             catch (Exception ex)
@@ -53,6 +53,7 @@ namespace AudioCopilot
         private void OnCurrentSessionChanged(GlobalSystemMediaTransportControlsSessionManager sender, CurrentSessionChangedEventArgs args)
         {
             UpdateCurrentSession();
+            _lastUpdateTimestamp = DateTime.MinValue;
         }
 
         private void UpdateCurrentSession()
@@ -61,19 +62,83 @@ namespace AudioCopilot
 
             if (_currentSession != null)
             {
-                // Suscríbete a los cambios en las propiedades del medio
                 _currentSession.MediaPropertiesChanged += OnMediaPropertiesChanged;
+                _currentSession.TimelinePropertiesChanged += OnTimelinePropertiesChanged;
+                _lastUpdateTimestamp = DateTime.MinValue;
 
-                // Actualiza las propiedades iniciales
-                GetMediaProperties();
+                // Actualizar UI inmediatamente
+                _ = GetMediaProperties();
+                _ = UpdateMediaProgress();
             }
             else
             {
-                // Limpia los datos si no hay sesión actual
+                // Si no hay sesión, limpia la UI
                 SongTitle = "No se está reproduciendo música";
                 Artist = string.Empty;
+                MainThread.BeginInvokeOnMainThread(() =>
+                {
+                    currentTimeLabel.Text = "0:00";
+                    totalTimeLabel.Text = "0:00";
+                    progressBar.Progress = 0;
+                    albumImage.Source = "default_image.png";
+                });
                 OnPropertyChanged(nameof(SongTitle));
                 OnPropertyChanged(nameof(Artist));
+            }
+        }
+
+        private async void OnTimelinePropertiesChanged(GlobalSystemMediaTransportControlsSession sender, TimelinePropertiesChangedEventArgs args)
+        {
+            _lastUpdateTimestamp = DateTime.MinValue;
+            await UpdateMediaProgress();
+        }
+
+        private async Task UpdateMediaProgress()
+        {
+            if (_isUpdatingProgress || _currentSession == null)
+                return;
+
+            _isUpdatingProgress = true;
+
+            try
+            {
+                var timelineProperties = _currentSession.GetTimelineProperties();
+                var playbackInfo = _currentSession.GetPlaybackInfo();
+
+                if (playbackInfo.PlaybackStatus == GlobalSystemMediaTransportControlsSessionPlaybackStatus.Playing)
+                {
+                    var currentPosition = timelineProperties.Position;
+                    var totalDuration = timelineProperties.EndTime - timelineProperties.StartTime;
+
+                    // Calcula el tiempo transcurrido desde la última actualización
+                    if (_lastUpdateTimestamp != DateTime.MinValue)
+                    {
+                        var elapsed = DateTime.Now - _lastUpdateTimestamp;
+                        currentPosition = currentPosition.Add(elapsed);
+                    }
+
+                    if (totalDuration.TotalSeconds > 0)
+                    {
+                        double progress = Math.Min(currentPosition.TotalSeconds / totalDuration.TotalSeconds, 1.0);
+
+                        await MainThread.InvokeOnMainThreadAsync(() =>
+                        {
+                            progressBar.Progress = progress;
+                            currentTimeLabel.Text = $"{(int)currentPosition.TotalMinutes}:{currentPosition.Seconds:D2}";
+                            totalTimeLabel.Text = $"{(int)totalDuration.TotalMinutes}:{totalDuration.Seconds:D2}";
+                        });
+                    }
+                }
+
+                _lastUpdateTimestamp = DateTime.Now;
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine($"Error en UpdateMediaProgress: {ex.Message}");
+            }
+            finally
+            {
+                _isUpdatingProgress = false;
             }
         }
 
@@ -82,140 +147,49 @@ namespace AudioCopilot
             await GetMediaProperties();
         }
 
-        private void StartPlaybackTimer()
-        {
-            _playbackTimer = new Timer(200); // Intervalo de 200 ms para mayor precisión
-            _playbackTimer.Elapsed += async (sender, e) =>
-            {
-                await MainThread.InvokeOnMainThreadAsync(async () =>
-                {
-                    await LogPlaybackInfo();
-                });
-            };
-            _playbackTimer.Start();
-        }
-
-
-
-        private DateTime _lastUpdateTimestamp;
-
-
-        private async Task LogPlaybackInfo()
-        {
-            if (_currentSession != null)
-            {
-                try
-                {
-                    var playbackInfo = _currentSession.GetPlaybackInfo();
-                    var timelineProperties = _currentSession.GetTimelineProperties();
-
-                    var currentPosition = timelineProperties.Position +
-                                          (DateTime.Now - _lastUpdateTimestamp); // Ajusta el tiempo transcurrido
-                    var totalDuration = timelineProperties.EndTime - timelineProperties.StartTime;
-
-                    if (totalDuration.TotalSeconds > 0)
-                    {
-                        // Calcula el porcentaje de progreso
-                        double progress = (currentPosition.TotalSeconds / totalDuration.TotalSeconds) * 100;
-
-                        // Actualiza la UI
-                        progressBar.Value = progress;
-                        currentTimeLabel.Text = $"{currentPosition.Minutes}:{currentPosition.Seconds:D2}";
-                        totalTimeLabel.Text = $"{totalDuration.Minutes}:{totalDuration.Seconds:D2}";
-                    }
-
-                    _lastUpdateTimestamp = DateTime.Now; // Actualiza el último timestamp
-                }
-                catch (Exception ex)
-                {
-                    Debug.WriteLine($"Error al obtener información de reproducción: {ex.Message}");
-                }
-            }
-            else
-            {
-                Debug.WriteLine("No hay sesión activa.");
-            }
-        }
-
-
-
-
-
-
         private async Task GetMediaProperties()
         {
-            if (_currentSession != null)
+            if (_currentSession == null)
+                return;
+
+            try
             {
+                var mediaProperties = await _currentSession.TryGetMediaPropertiesAsync();
 
-                try
+                if (mediaProperties != null)
                 {
-                    var mediaProperties = await _currentSession.TryGetMediaPropertiesAsync();
+                    SongTitle = mediaProperties.Title ?? "Desconocido";
+                    Artist = mediaProperties.Artist ?? "Artista desconocido";
 
-                    if (mediaProperties != null)
+                    if (mediaProperties.Thumbnail != null)
                     {
-                        // Actualiza las propiedades (Título, ArtistAa)
-                        SongTitle = mediaProperties.Title ?? "Desconocido";
-                        Artist = mediaProperties.Artist ?? "Artista desconocido";
-
-                        // Actualiza la miniatura si está disponible
-                        if (mediaProperties.Thumbnail != null)
+                        try
                         {
-                            try
-                            {
-                                var thumbnailFile = mediaProperties.Thumbnail;
-                                var stream = await thumbnailFile.OpenReadAsync();
-                                var imageSource = ImageSource.FromStream(() => stream.AsStream());
+                            var thumbnailFile = mediaProperties.Thumbnail;
+                            var stream = await thumbnailFile.OpenReadAsync();
+                            var imageSource = ImageSource.FromStream(() => stream.AsStream());
 
-                                // Actualiza la imagen en el hilo principal
-                                Dispatcher.Dispatch(() =>
-                                {
-                                    albumImage.Source = imageSource;
-                                });
-                            }
-                            catch (Exception ex)
-                            {
-                                Debug.WriteLine($"Error al cargar la miniatura: {ex.Message}");
-
-                                // Actualiza la imagen predeterminada en el hilo principal
-                                Dispatcher.Dispatch(() =>
-                                {
-                                    albumImage.Source = "default_image.png";
-                                });
-                            }
+                            await MainThread.InvokeOnMainThreadAsync(() => albumImage.Source = imageSource);
                         }
-                        else
+                        catch
                         {
-                            // Actualiza la imagen predeterminada en el hilo principal
-                            Dispatcher.Dispatch(() =>
-                            {
-                                albumImage.Source = "default_image.png";
-                            });
+                            await MainThread.InvokeOnMainThreadAsync(() => albumImage.Source = "default_image.png");
                         }
-
-
-                        // Notifica cambios a la UI
-                        OnPropertyChanged(nameof(SongTitle));
-                        OnPropertyChanged(nameof(Artist));
                     }
-                }
-                catch (Exception ex)
-                {
-                    Debug.WriteLine($"Error al obtener propiedades del medio: {ex.Message}");
+                    else
+                    {
+                        await MainThread.InvokeOnMainThreadAsync(() => albumImage.Source = "default_image.png");
+                    }
+
+                    OnPropertyChanged(nameof(SongTitle));
+                    OnPropertyChanged(nameof(Artist));
                 }
             }
-            else
+            catch (Exception ex)
             {
-                // Limpia la información si no hay sesión
-                SongTitle = "No se está reproduciendo música";
-                Artist = string.Empty;
-                albumImage.Source = null;
-
-                OnPropertyChanged(nameof(SongTitle));
-                OnPropertyChanged(nameof(Artist));
+                Debug.WriteLine($"Error al obtener propiedades del medio: {ex.Message}");
             }
         }
-
-
 
         private async void OnPlayPauseClicked(object sender, EventArgs e)
         {
@@ -228,12 +202,10 @@ namespace AudioCopilot
                     if (playbackInfo.PlaybackStatus == GlobalSystemMediaTransportControlsSessionPlaybackStatus.Playing)
                     {
                         await _currentSession.TryPauseAsync();
-                        Debug.WriteLine("Audio pausado.");
                     }
                     else
                     {
                         await _currentSession.TryPlayAsync();
-                        Debug.WriteLine("Reproduciendo audio.");
                     }
                 }
                 catch (Exception ex)
@@ -250,7 +222,6 @@ namespace AudioCopilot
                 try
                 {
                     await _currentSession.TrySkipNextAsync();
-                    Debug.WriteLine("Avanzando a la siguiente canción.");
                 }
                 catch (Exception ex)
                 {
@@ -266,12 +237,25 @@ namespace AudioCopilot
                 try
                 {
                     await _currentSession.TrySkipPreviousAsync();
-                    Debug.WriteLine("Volviendo a la canción anterior.");
                 }
                 catch (Exception ex)
                 {
                     Debug.WriteLine($"Error al retroceder a la canción anterior: {ex.Message}");
                 }
+            }
+        }
+
+        protected override void OnDisappearing()
+        {
+            base.OnDisappearing();
+
+            _updateTimer?.Stop();
+            _updateTimer?.Dispose();
+
+            if (_currentSession != null)
+            {
+                _currentSession.MediaPropertiesChanged -= OnMediaPropertiesChanged;
+                _currentSession.TimelinePropertiesChanged -= OnTimelinePropertiesChanged;
             }
         }
     }
