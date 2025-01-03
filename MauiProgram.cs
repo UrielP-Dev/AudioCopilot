@@ -36,8 +36,8 @@ namespace AudioCopilot
                         // Establecer tamaño fijo
                         var size = new SizeInt32
                         {
-                            Width = 900,  // Ancho en píxeles
-                            Height = 800  // Alto en píxeles
+                            Width = 800,  // Ancho en píxeles
+                            Height = 300  // Alto en píxeles
                         };
                         appWindow.Resize(size);
 

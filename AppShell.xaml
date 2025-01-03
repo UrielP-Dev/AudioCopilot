@@ -11,8 +11,7 @@
         Title=""
         ContentTemplate="{DataTemplate local:MainPage}"
         Route="MainPage" 
-        IsVisible="True"
-        NavigationPage.HasNavigationBar="False"/>
+        />
 
     
 
