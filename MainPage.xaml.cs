@@ -27,7 +27,7 @@ namespace AudioCopilot
 
         private void InitializeUpdateTimer()
         {
-            _updateTimer = new System.Timers.Timer(100);
+            _updateTimer = new System.Timers.Timer(500);  
             _updateTimer.Elapsed += async (s, e) => await UpdateMediaProgress();
             _updateTimer.Start();
         }
@@ -110,17 +110,10 @@ namespace AudioCopilot
                     var currentPosition = timelineProperties.Position;
                     var totalDuration = timelineProperties.EndTime - timelineProperties.StartTime;
 
-                    // Calcula el tiempo transcurrido desde la última actualización
-                    if (_lastUpdateTimestamp != DateTime.MinValue)
-                    {
-                        var elapsed = DateTime.Now - _lastUpdateTimestamp;
-                        currentPosition = currentPosition.Add(elapsed);
-                    }
-
+                    // Evitar añadir el elapsed si no es necesario para las actualizaciones en tiempo real
                     if (totalDuration.TotalSeconds > 0)
                     {
                         double progress = Math.Min(currentPosition.TotalSeconds / totalDuration.TotalSeconds, 1.0);
-
                         await MainThread.InvokeOnMainThreadAsync(() =>
                         {
                             progressBar.Progress = progress;
